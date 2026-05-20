@@ -1150,12 +1150,23 @@ public class TypeMappingSourceUnwrapTests
     [InlineData("LowCardinality(String)")]
     [InlineData("LowCardinality(Nullable(String))")]
     [InlineData("Nullable(Float64)")]
-    [InlineData("Nullable(Decimal(18, 4))")]
     public void FindMapping_UnwrapsWrapperTypes(string storeType)
     {
         var source = GetTypeMappingSource();
         var mapping = source.FindMapping(typeof(object), storeType);
         Assert.NotNull(mapping);
+        // Issue #18: the wrapper must be preserved on the resolved mapping's StoreType
+        // so migrations and parameter binding see the full user-configured type.
+        Assert.Equal(storeType, mapping.StoreType);
+    }
+
+    [Fact]
+    public void FindMapping_PreservesNullableDecimalWrapper()
+    {
+        var source = GetTypeMappingSource();
+        var mapping = source.FindMapping(typeof(decimal?), "Nullable(Decimal(18, 4))");
+        Assert.NotNull(mapping);
+        Assert.Equal("Nullable(Decimal(18, 4))", mapping.StoreType);
     }
 
     [Theory]
