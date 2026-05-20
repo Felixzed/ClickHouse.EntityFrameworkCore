@@ -317,9 +317,10 @@ public class ClickHouseTypeMappingSource : RelationalTypeMappingSource
 
         // Force StoreTypePostfix.None so the constructor does not rebuild the type name
         // from the inner facets (e.g. Decimal's PrecisionAndScale postfix would produce
-        // "LowCardinality(Decimal32(4))(9,4)" otherwise).
-        RelationalTypeMappingInfo? infoNullable = mappingInfo;
-        return mapping.Clone(in infoNullable, storeTypePostfix: StoreTypePostfix.None);
+        // "LowCardinality(Decimal32(4))(9,4)" otherwise). The local exists because
+        // Clone's overload signature takes `in RelationalTypeMappingInfo?`.
+        RelationalTypeMappingInfo? cloneInfo = mappingInfo;
+        return mapping.Clone(in cloneInfo, storeTypePostfix: StoreTypePostfix.None);
     }
 
     private static bool HasWrapper(string storeTypeName)

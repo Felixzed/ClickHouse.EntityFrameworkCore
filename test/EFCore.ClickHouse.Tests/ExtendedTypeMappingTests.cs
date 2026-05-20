@@ -1138,11 +1138,13 @@ public class DynamicTests
 
 #region Unit Tests for Type Mapping Source
 
-public class TypeMappingSourceUnwrapTests
+public class TypeMappingSourceStoreTypeTests
 {
     /// <summary>
-    /// Verifies that ParseStoreTypeName correctly unwraps Nullable/LowCardinality
-    /// wrappers by checking that the type mapping source resolves them.
+    /// Verifies that Nullable(...) and LowCardinality(...) wrappers in the user's
+    /// configured store type are preserved on the resolved mapping's StoreType.
+    /// The internal resolver unwraps these wrappers to find the inner CLR mapping,
+    /// then re-wraps so migration DDL and SQL parameter types see the full form.
     /// </summary>
     [Theory]
     [InlineData("Nullable(Int32)")]
@@ -1150,13 +1152,11 @@ public class TypeMappingSourceUnwrapTests
     [InlineData("LowCardinality(String)")]
     [InlineData("LowCardinality(Nullable(String))")]
     [InlineData("Nullable(Float64)")]
-    public void FindMapping_UnwrapsWrapperTypes(string storeType)
+    public void FindMapping_PreservesWrapperTypes(string storeType)
     {
         var source = GetTypeMappingSource();
         var mapping = source.FindMapping(typeof(object), storeType);
         Assert.NotNull(mapping);
-        // Issue #18: the wrapper must be preserved on the resolved mapping's StoreType
-        // so migrations and parameter binding see the full user-configured type.
         Assert.Equal(storeType, mapping.StoreType);
     }
 
