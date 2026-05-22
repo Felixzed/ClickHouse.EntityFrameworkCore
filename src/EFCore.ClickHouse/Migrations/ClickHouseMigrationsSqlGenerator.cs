@@ -85,13 +85,7 @@ public class ClickHouseMigrationsSqlGenerator : MigrationsSqlGenerator
 
         var columnType = operation.ColumnType ?? GetColumnType(schema, table, name, operation, model)!;
 
-        // Wrap nullable scalar types in Nullable(T).
-        // Skip: arrays (CLR T[] or List<T> → Array(T)), Map, Json, Tuple, Variant —
-        // ClickHouse does not support Nullable(Array(...)) etc.
-        if (operation.IsNullable && !IsNonNullableContainerType(operation.ClrType, columnType))
-        {
-            columnType = $"Nullable({columnType})";
-        }
+        columnType = ApplyNullableWrapping(operation.ClrType, columnType, operation.IsNullable);
 
         builder
             .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(name))
@@ -143,10 +137,7 @@ public class ClickHouseMigrationsSqlGenerator : MigrationsSqlGenerator
         var keyword = operation.IsStored == true ? " MATERIALIZED " : " ALIAS ";
         var columnType = operation.ColumnType ?? GetColumnType(schema, table, name, operation, model)!;
 
-        if (operation.IsNullable && !IsNonNullableContainerType(operation.ClrType, columnType))
-        {
-            columnType = $"Nullable({columnType})";
-        }
+        columnType = ApplyNullableWrapping(operation.ClrType, columnType, operation.IsNullable);
 
         builder
             .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(name))
@@ -645,6 +636,67 @@ public class ClickHouseMigrationsSqlGenerator : MigrationsSqlGenerator
             || columnType.StartsWith("Variant(", StringComparison.OrdinalIgnoreCase)
             || columnType.StartsWith("Json", StringComparison.OrdinalIgnoreCase)
             || columnType.Equals("Dynamic", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ApplyNullableWrapping(Type? clrType, string columnType, bool isNullable)
+    {
+        if (!isNullable)
+            return columnType;
+
+        var normalizedColumnType = columnType.TrimStart();
+
+        // ClickHouse rejects Nullable(LowCardinality(...)).
+        // For nullable CLR properties with LowCardinality(T), wrap nullability inside:
+        // LowCardinality(Nullable(T)).
+        if (TryGetTopLevelInnerType(normalizedColumnType, "LowCardinality", out var lowCardinalityInnerType))
+        {
+            if (lowCardinalityInnerType.StartsWith("Nullable(", StringComparison.OrdinalIgnoreCase))
+                return normalizedColumnType;
+
+            return $"LowCardinality(Nullable({lowCardinalityInnerType}))";
+        }
+
+        if (IsNonNullableContainerType(clrType, normalizedColumnType))
+            return normalizedColumnType;
+
+        return $"Nullable({normalizedColumnType})";
+    }
+
+    private static bool TryGetTopLevelInnerType(string storeType, string prefix, out string innerType)
+    {
+        innerType = string.Empty;
+
+        if (!storeType.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || storeType.Length <= prefix.Length + 2
+            || storeType[prefix.Length] != '(')
+        {
+            return false;
+        }
+
+        var closeParen = FindMatchingCloseParen(storeType, prefix.Length);
+        if (closeParen != storeType.Length - 1)
+            return false;
+
+        innerType = storeType[(prefix.Length + 1)..closeParen].Trim();
+        return innerType.Length > 0;
+    }
+
+    private static int FindMatchingCloseParen(string value, int openParenIndex)
+    {
+        var depth = 0;
+        for (var i = openParenIndex; i < value.Length; i++)
+        {
+            if (value[i] == '(')
+                depth++;
+            else if (value[i] == ')')
+            {
+                depth--;
+                if (depth == 0)
+                    return i;
+            }
+        }
+
+        return -1;
     }
 
     private static bool IsMergeTreeFamily(string engine)

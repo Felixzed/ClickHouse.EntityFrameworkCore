@@ -968,11 +968,10 @@ public class MigrationSqlGeneratorTests
     public void HasColumnType_AggregateFunction_preserved_in_CreateTable_DDL()
         => AssertColumnTypePreserved<AggregateFunctionContext>("AggregateFunction(uniq, UInt64)");
 
-    // Nullable CLR property + LowCardinality(...) store type must not auto-wrap to
-    // Nullable(LowCardinality(...)) — ClickHouse rejects that wrapper order. The user
-    // is responsible for writing LowCardinality(Nullable(...)) when they want both.
+    // Nullable CLR property + LowCardinality(...) store type must wrap nullability inside
+    // LowCardinality(Nullable(...)) because ClickHouse rejects Nullable(LowCardinality(...)).
     [Fact]
-    public void HasColumnType_LowCardinality_on_nullable_property_does_not_wrap_in_Nullable()
+    public void HasColumnType_LowCardinality_on_nullable_property_wraps_inside_LowCardinality()
     {
         using var ctx = new NullablePropertyLowCardinalityContext();
         var model = ctx.GetService<IDesignTimeModel>().Model.GetRelationalModel();
@@ -981,8 +980,36 @@ public class MigrationSqlGeneratorTests
 
         var generator = ctx.GetService<IMigrationsSqlGenerator>();
         var sql = string.Join("\n", generator.Generate(operations).Select(c => c.CommandText));
-        Assert.Contains("`Path` LowCardinality(String)", sql);
+        Assert.Contains("`Path` LowCardinality(Nullable(String))", sql);
         Assert.DoesNotContain("Nullable(LowCardinality", sql);
+    }
+
+    [Fact]
+    public void HasColumnType_LowCardinality_with_inner_nullable_on_nullable_property_is_not_double_wrapped()
+    {
+        using var ctx = new NullablePropertyLowCardinalityInnerNullableContext();
+        var model = ctx.GetService<IDesignTimeModel>().Model.GetRelationalModel();
+        var differ = ctx.GetService<IMigrationsModelDiffer>();
+        var operations = differ.GetDifferences(source: null, target: model);
+
+        var generator = ctx.GetService<IMigrationsSqlGenerator>();
+        var sql = string.Join("\n", generator.Generate(operations).Select(c => c.CommandText));
+        Assert.Contains("`Path` LowCardinality(Nullable(String))", sql);
+        Assert.DoesNotContain("LowCardinality(Nullable(Nullable(", sql);
+        Assert.DoesNotContain("Nullable(LowCardinality", sql);
+    }
+
+    [Fact]
+    public void HasColumnType_Enum8_on_nullable_property_wraps_in_Nullable()
+    {
+        using var ctx = new NullablePropertyEnumContext();
+        var model = ctx.GetService<IDesignTimeModel>().Model.GetRelationalModel();
+        var differ = ctx.GetService<IMigrationsModelDiffer>();
+        var operations = differ.GetDifferences(source: null, target: model);
+
+        var generator = ctx.GetService<IMigrationsSqlGenerator>();
+        var sql = string.Join("\n", generator.Generate(operations).Select(c => c.CommandText));
+        Assert.Contains("`Path` Nullable(Enum8('A' = 1, 'B' = 2))", sql);
     }
 
     private static void AssertColumnTypePreserved<TContext>(string expectedColumnType)
@@ -1069,6 +1096,38 @@ public class MigrationSqlGeneratorTests
             {
                 e.HasKey(x => x.Id);
                 e.Property(x => x.Path).HasColumnType("LowCardinality(String)");
+                e.ToTable("page_views", t => t.HasMergeTreeEngine().WithOrderBy("Id"));
+            });
+        }
+    }
+
+    private sealed class NullablePropertyEnumContext : DbContext
+    {
+        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+            => optionsBuilder.UseClickHouse("Host=localhost;Database=test");
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<NullablePageView>(e =>
+            {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Path).HasColumnType("Enum8('A' = 1, 'B' = 2)");
+                e.ToTable("page_views", t => t.HasMergeTreeEngine().WithOrderBy("Id"));
+            });
+        }
+    }
+
+    private sealed class NullablePropertyLowCardinalityInnerNullableContext : DbContext
+    {
+        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+            => optionsBuilder.UseClickHouse("Host=localhost;Database=test");
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<NullablePageView>(e =>
+            {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Path).HasColumnType("LowCardinality(Nullable(String))");
                 e.ToTable("page_views", t => t.HasMergeTreeEngine().WithOrderBy("Id"));
             });
         }
