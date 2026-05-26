@@ -5,6 +5,9 @@ v0.3.0 (Unreleased)
   The provider handles ClickHouse 1-based indexing for arrays automatically and supports deep nesting and explicit casting/`.GetValue<T>()`.
 * **SimpleJSON functions**: support for `simpleJSONExtract*` and `simpleJSONHas` via `EF.Functions`.
 
+### Bug fixes
+* `HasColumnType("Enum8(...)")`, `HasColumnType("AggregateFunction(...)")`, and similar parameterized or aliased store types are now preserved verbatim in generated migration DDL. Previously these silently emitted `String` because the resolver canonicalized to a generic fallback mapping. ([#24](https://github.com/ClickHouse/ClickHouse.EntityFrameworkCore/issues/24))
+
 v0.2.0
 ---
 ### Table engine and DDL
